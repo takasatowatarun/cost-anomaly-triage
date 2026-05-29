@@ -178,9 +178,6 @@ Microsoft 365 の仕様変更により、Teams の Incoming Webhook は **ワー
 
 3. ウィザードを進めて作成完了後に表示される **Webhook URL** をコピーし、デプロイスクリプトの対話入力で登録します。
 
-### Asana 自動起票（フェーズ 2）
-`src/handler.py` の `_post_to_slack()` の後に Asana REST API 呼び出しを追加することで、
-「要対応」判定時に自動でサブタスクを起票できます。
 
 ---
 
