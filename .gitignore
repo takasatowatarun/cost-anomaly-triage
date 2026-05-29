@@ -1,0 +1,38 @@
+# ── 履歴・旧バージョン・登壇資料 ──
+_old/
+presentation/
+
+# ── ビルド成果物 ──
+.aws-sam/
+*.tar.gz
+*.zip
+samconfig.toml
+packaged.yaml
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── ローカル設定・シークレット ──
+.env
+.env.*
+!.env.example
+*.local
+
+# ── OS / エディタ ──
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# ── ログ ──
+*.log

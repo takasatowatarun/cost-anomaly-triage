@@ -1,0 +1,14 @@
+{
+  "source": "aws.ce",
+  "detail-type": "AWS Cost Management - Anomaly Detection Alert",
+  "detail": {
+    "accountId": "123456789012",
+    "anomalyId": "test-anomaly-001",
+    "impact": { "totalImpact": 161.49 },
+    "rootCauses": [{
+      "service": "Amazon GuardDuty",
+      "usageType": "APN1-PaidS3DataEventsAnalyzed",
+      "region": "ap-northeast-1"
+    }]
+  }
+}

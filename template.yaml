@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Cost Anomaly Detection 自動トリアージパイプライン (Bedrock edition)
+  EventBridge → Lambda → Cost Explorer + Bedrock (Claude Haiku 4.5) → Slack
+
+# ─────────────────────────────────────────────────────────
+# ⚠️  Cost Anomaly Detection の EventBridge イベントは
+#    us-east-1 のみで発行されます。
+#    必ず --region us-east-1 でデプロイしてください。
+# ─────────────────────────────────────────────────────────
+
+Parameters:
+  SlackWebhookSsmPath:
+    Type: String
+    Default: /cost-anomaly-triage/slack-webhook-url
+    Description: Slack Webhook URL を格納した SSM Parameter Store のパス
+  TeamsWebhookSsmPath:
+    Type: String
+    Default: ""
+    Description: Teams Incoming Webhook URL を格納した SSM Parameter Store のパス（空の場合は Teams 通知をスキップ）
+  Env:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: 環境識別子
+
+Conditions:
+  HasTeamsWebhook: !Not [!Equals [!Ref TeamsWebhookSsmPath, ""]]
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 60
+    MemorySize: 256
+    LoggingConfig:
+      LogFormat: JSON
+      LogGroup: !Sub /aws/lambda/cost-anomaly-triage-${Env}
+    Environment:
+      Variables:
+        SLACK_WEBHOOK_SSM_PATH: !Ref SlackWebhookSsmPath
+        TEAMS_WEBHOOK_SSM_PATH: !Ref TeamsWebhookSsmPath
+
+Resources:
+
+  # ── Dead Letter Queue ────────────────────────────────────
+  TriageDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub cost-anomaly-triage-dlq-${Env}
+      MessageRetentionPeriod: 1209600   # 14日間保持
+
+  # ── Lambda 関数 ──────────────────────────────────────────
+  TriageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub cost-anomaly-triage-${Env}
+      CodeUri: src/
+      Handler: handler.lambda_handler
+      Description: Cost Anomaly Detection アラートを自動でトリアージして Slack 通知
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - ce:GetCostAndUsage
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub arn:aws:ssm:*:${AWS::AccountId}:parameter${SlackWebhookSsmPath}
+                - !If
+                  - HasTeamsWebhook
+                  - !Sub arn:aws:ssm:*:${AWS::AccountId}:parameter${TeamsWebhookSsmPath}
+                  - !Ref AWS::NoValue
+
+  # ── Lambda ログ保持期間 ──────────────────────────────────
+  TriageFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/cost-anomaly-triage-${Env}
+      RetentionInDays: 30
+
+  # ── Lambda 実行権限（EventBridge から呼び出し許可）────────
+  TriageFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt TriageFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt CostAnomalyRule.Arn
+
+  # ── EventBridge ルール ────────────────────────────────────
+  CostAnomalyRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub cost-anomaly-triage-rule-${Env}
+      Description: Cost Anomaly Detection アラートを Lambda に転送（日次・週次・即時すべて対応）
+      EventPattern:
+        source:
+          - aws.ce
+        detail-type:
+          - Anomaly Detected
+      State: ENABLED
+      Targets:
+        - Id: TriageLambdaTarget
+          Arn: !GetAtt TriageFunction.Arn
+          RetryPolicy:
+            MaximumRetryAttempts: 2
+            MaximumEventAgeInSeconds: 3600
+          DeadLetterConfig:
+            Arn: !GetAtt TriageDLQ.Arn
+
+  # ── DLQ への EventBridge 書き込み権限 ────────────────────
+  TriageDLQPolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref TriageDLQ
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt TriageDLQ.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt CostAnomalyRule.Arn
+
+Outputs:
+  FunctionArn:
+    Description: Lambda 関数 ARN
+    Value: !GetAtt TriageFunction.Arn
+  FunctionName:
+    Description: Lambda 関数名（テスト実行に使用）
+    Value: !Ref TriageFunction
+  DLQUrl:
+    Description: Dead Letter Queue URL（失敗イベントの確認に使用）
+    Value: !Ref TriageDLQ

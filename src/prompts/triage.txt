@@ -1,0 +1,25 @@
+AWSコスト異常のトリアージを行ってください。以下の情報を分析し、JSON形式のみで回答してください（前後に説明文不要）。
+
+## アラート内容
+- アカウントID : {account_id}
+- 異常サービス : {service}
+- Usage Type  : {usage_type}
+- リージョン  : {region}
+- コストインパクト: ${total_impact}
+
+## 過去14日コスト推移（日次）
+{daily_costs}
+
+## 判断基準
+- 1日で突発的に急増 → 要対応
+- 数日かけて緩やかに増加（既知パターンに近い） → 静観
+- GuardDuty/S3イベントが異常に多い → 要対応
+
+## 出力フォーマット（JSONのみ）
+{
+  "verdict":     "要対応 or 静観",
+  "reason":      "原因推定（1〜2文）",
+  "resolution":  "収束見込みまたは対応方針（1文）",
+  "next_action": "ネクストアクション（1文）",
+  "confidence":  "high or medium or low"
+}
