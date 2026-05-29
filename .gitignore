@@ -36,3 +36,6 @@ desktop.ini
 
 # ── ログ ──
 *.log
+
+# ── Lambda invoke のローカル出力 ──
+output.json

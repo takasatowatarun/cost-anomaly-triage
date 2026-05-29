@@ -3,7 +3,10 @@
 # 前提: aws cli / sam cli がインストール済みで、適切な IAM 権限があること
 #       Bedrock で Claude Haiku 4.5 のモデルアクセスが有効化されていること
 # ─────────────────────────────────────────────────────────────────────────────
-$ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 では Stop にすると AWS CLI が stderr に書いた瞬間
+# NativeCommandError で停止してしまうため Continue を採用し、
+# 重要な箇所では $LASTEXITCODE を見て明示的に throw する。
+$ErrorActionPreference = "Continue"
 
 $StackName     = "cost-anomaly-triage"
 $Region        = "us-east-1"   # ← 変更不可。CAD の EventBridge は us-east-1 のみ
@@ -12,6 +15,9 @@ $SlackSsmPath  = "/cost-anomaly-triage/slack-webhook-url"
 $TeamsSsmPath  = "/cost-anomaly-triage/teams-webhook-url"
 
 $AccountId    = (aws sts get-caller-identity --query Account --output text)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($AccountId)) {
+    throw "AWS CLI の認証情報を取得できません。aws configure を確認してください。"
+}
 $DeployBucket = "$StackName-deploy-$AccountId"
 
 Write-Host "=============================================="
@@ -20,17 +26,6 @@ Write-Host "  Stack  : $StackName"
 Write-Host "  Region : $Region"
 Write-Host "  Account: $AccountId"
 Write-Host "=============================================="
-
-# SecureString から平文を取り出すヘルパー
-function ConvertFrom-SecureStringPlain {
-    param([System.Security.SecureString]$Secure)
-    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
-    try {
-        return [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-    } finally {
-        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-    }
-}
 
 # ── S3 バケット確認 ───────────────────────────────────────────────────────────
 Write-Host ""
@@ -60,10 +55,11 @@ function Register-SsmParameter {
         Write-Host "   （更新する場合は y、スキップは Enter）"
         $update = Read-Host
         if ($update -eq "y") {
-            Write-Host "   新しい $Label を入力してください (入力は非表示):"
-            $secure = Read-Host -AsSecureString
-            $value  = ConvertFrom-SecureStringPlain -Secure $secure
-            Write-Host ""
+            $value = Read-Host "   新しい $Label を入力"
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                Write-Host "   空入力のためスキップ: $Name"
+                return
+            }
             aws ssm put-parameter `
                 --name $Name `
                 --value $value `
@@ -74,19 +70,16 @@ function Register-SsmParameter {
         }
     } else {
         if ($Required -eq "optional") {
-            Write-Host "   $Label を入力してください（スキップする場合は Enter）(入力は非表示):"
-            $secure = Read-Host -AsSecureString
-            $value  = ConvertFrom-SecureStringPlain -Secure $secure
-            Write-Host ""
-            if ([string]::IsNullOrEmpty($value)) {
+            $value = Read-Host "   $Label を入力（スキップする場合は Enter）"
+            if ([string]::IsNullOrWhiteSpace($value)) {
                 Write-Host "   スキップ: $Name"
                 return
             }
         } else {
-            Write-Host "   $Label を入力してください (入力は非表示):"
-            $secure = Read-Host -AsSecureString
-            $value  = ConvertFrom-SecureStringPlain -Secure $secure
-            Write-Host ""
+            $value = Read-Host "   $Label を入力"
+            if ([string]::IsNullOrWhiteSpace($value)) {
+                throw "$Label が入力されていません。処理を中断します。"
+            }
         }
         aws ssm put-parameter `
             --name $Name `

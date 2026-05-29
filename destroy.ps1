@@ -5,7 +5,10 @@
 #   - SSM Parameter Store（Slack / Teams Webhook URL）
 #   - デプロイ用 S3 バケット（空にしてから削除）
 # ─────────────────────────────────────────────────────────────────────────────
-$ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 では Stop にすると AWS CLI が stderr に書いた瞬間
+# NativeCommandError で停止してしまうため Continue を採用し、
+# $LASTEXITCODE で個別に判定する。
+$ErrorActionPreference = "Continue"
 
 $StackName    = "cost-anomaly-triage"
 $Region       = "us-east-1"
@@ -13,6 +16,9 @@ $SlackSsmPath = "/cost-anomaly-triage/slack-webhook-url"
 $TeamsSsmPath = "/cost-anomaly-triage/teams-webhook-url"
 
 $AccountId    = (aws sts get-caller-identity --query Account --output text)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($AccountId)) {
+    throw "AWS CLI の認証情報を取得できません。aws configure を確認してください。"
+}
 $DeployBucket = "$StackName-deploy-$AccountId"
 
 Write-Host "=============================================="
