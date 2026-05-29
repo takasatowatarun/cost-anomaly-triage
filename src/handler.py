@@ -101,13 +101,15 @@ def _get_cost_trend(account_id: str, service: str) -> list[dict]:
 
 
 def _analyze_with_bedrock(anomaly: dict, daily_costs: list) -> dict:
-    prompt = _PROMPT_TEMPLATE.format(
-        account_id   = anomaly["account_id"],
-        service      = anomaly["service"],
-        usage_type   = anomaly["usage_type"],
-        region       = anomaly["region"],
-        total_impact = f"{anomaly['total_impact']:.2f}",
-        daily_costs  = json.dumps(daily_costs, ensure_ascii=False),
+    # str.format だとプロンプト中の JSON サンプルの { } が変数扱いになるため replace で差し込む
+    prompt = (
+        _PROMPT_TEMPLATE
+        .replace("{account_id}",   anomaly["account_id"])
+        .replace("{service}",      anomaly["service"])
+        .replace("{usage_type}",   anomaly["usage_type"])
+        .replace("{region}",       anomaly["region"])
+        .replace("{total_impact}", f"{anomaly['total_impact']:.2f}")
+        .replace("{daily_costs}",  json.dumps(daily_costs, ensure_ascii=False))
     )
 
     resp = bedrock_client.converse(
